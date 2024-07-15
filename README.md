@@ -9,7 +9,7 @@ LI5HjH7kAjT/1HrXeldAXJjACH/ddrbkRlZXglL4EUWN3kSVgHHUNWZUq1RBrVc=
 ## 依赖环境
 
 ```
-AvZ2 240731
+AvZ2 240713
 ```
 
 ## 关于脚本
