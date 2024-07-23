@@ -1,6 +1,6 @@
 #pragma once
 #include "GetZombieAbscissas/GetZombieAbscissas_2_0.h"
-#include "avz_more_autoplay.h"
+#include "avz_more.h"
 #include "util.h"
 
 #ifndef __GLOBAL_H__
@@ -8,6 +8,16 @@
 
 class Judge {
 public:
+    // 检查某格子是否有梯子
+    static bool IsExistLadder(int row, int col)
+    {
+        for (auto& placeItem : aAlivePlaceItemFilter) {
+            if (placeItem.Type() == APlaceItemType::LADDER && placeItem.Row() == row - 1 && placeItem.Col() == col - 1) {
+                return true;
+            }
+        }
+        return false;
+    }
     // 检查[list]中是否有格子在[delay_time]后可用
     static bool IsGridUsable(std::vector<AGrid> list, int delay_time = 0)
     {
@@ -165,12 +175,6 @@ inline void UseCard(APlantType plant_type, int row, int col)
     });
 }
 
-// 清除浓雾
-inline void ClearFog(bool isEnable)
-{
-    AMRef<uint16_t>(0x41a68d) = isEnable ? 0xd231 : 0xf23b;
-}
-
 // 游戏控制
 class GameController {
 protected:
@@ -240,7 +244,9 @@ inline void GameController::Enable(const float& speed)
         auto ret = MessageBoxW(pvzHwnd, L"您想要立即停止脚本的运行吗？点击确定脚本将停止运行，点击取消则会在完成本轮选卡后结束脚本的运行", L"Waring", MB_ICONINFORMATION | MB_OKCANCEL | MB_APPLMODAL);
         ASetReloadMode(AReloadMode::NONE);
         if (ret == 1) {
-            ATerminate("您主动结束了脚本的运行！");
+            ret = MessageBoxW(pvzHwnd, L"真的要立即停止脚本运行吗？这可能会导致脚本在下次注入时部分功能异常", L"Waring", MB_ICONINFORMATION | MB_OKCANCEL | MB_APPLMODAL);
+            if (ret == 1)
+                ATerminate("您主动结束了脚本的运行！");
         }
     });
 }
@@ -275,6 +281,20 @@ inline bool AGetIsKeysDown(const int& key, bool isRequirePvZActive = true)
         return false;
 
     return (GetAsyncKeyState(key) & 0x8000) != 0;
+}
+
+// 清除浓雾
+inline void ClearFog(bool isEnable)
+{
+    AMRef<uint16_t>(0x41a68d) = isEnable ? 0xd231 : 0xf23b;
+}
+
+// 设置僵尸是否隐形
+// 主要用于提高跳帧速度
+inline void SetZombieIsStealth(bool isEnable)
+{
+    AMRef<byte>(0x0052e357) = isEnable ? 0x70 : 0x75;
+    AMRef<byte>(0x0053402b) = isEnable ? 0x70 : 0x75;
 }
 
 #endif //!__GLOBAL_H__

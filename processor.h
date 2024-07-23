@@ -6,9 +6,9 @@
 
 // 对场地进行划分
 enum class PlaceType {
-    ALL = 0, // 全场
-    UP,      // 上半场
-    DOWN,    // 下半场
+    ALL,  // 全场
+    UP,   // 上半场
+    DOWN, // 下半场
 };
 
 // 关卡类型
@@ -38,7 +38,43 @@ static const std::unordered_map<int, int> CrashTime = {{5, 2227}, {6, 1555}, {7,
 class Processor : public AStateHook {
 public:
     // 得到关卡类型
-    Level GetLevelType() { return this->_levelType; }
+    Level GetLevelType()
+    {
+        if (cresc::TypeExist(AGIGA_GARGANTUAR)) {
+            // 有红眼，同时{铁桶，橄榄，白眼}有其一，刷新基本稳定
+            if (cresc::TypeExist(AGARGANTUAR)) {
+                _levelType = Level::Slow;
+            } else { // 有红眼，但是{铁桶，橄榄，白眼}都没有，变速
+                if (cresc::TypeExist(AZOMBONI) && cresc::TypeOr({AFOOTBALL_ZOMBIE, ABUCKETHEAD_ZOMBIE}))
+                    _levelType = Level::Slow;
+                else
+                    _levelType = Level::Variable;
+            }
+        } else {
+            if (cresc::TypeExist(AGARGANTUAR)) {
+                // // 有白眼，同时{铁桶，橄榄，冰车}有其一
+                if (cresc::TypeOr({ABUCKETHEAD_ZOMBIE, AFOOTBALL_ZOMBIE, AZOMBONI}))
+                    _levelType = Level::Slow;
+                else // 只有白眼
+                    _levelType = Level::White;
+            } else {
+                if (cresc::TypeOr({ABUCKETHEAD_ZOMBIE, AFOOTBALL_ZOMBIE})) {
+                    if (cresc::TypeExist(AZOMBONI)) {
+                        _levelType = Level::Fast;
+                    } else {
+                        // 边路偷两个南瓜保大喷，减少补喷
+                        temporaryPumpkin.push_back({1, 5});
+                        temporaryPumpkin.push_back({6, 5});
+                        _levelType = Level::White;
+                    }
+                } else {
+                    _levelType = Level::TopSpeed;
+                }
+            }
+        }
+
+        return this->_levelType;
+    }
 
     // 返回樱桃的作用半场
     PlaceType CherryPos() { return this->_cherryPos; }
@@ -383,7 +419,7 @@ protected:
         // 如果当前边路压力太大，大喷临时当作垫材使用
         for (auto row : {1, 6, 2, 5}) {
             for (auto col : {4, 5}) {
-                if (minGigaX[row - 1] < -70 && cresc::Plantable(AFUME_SHROOM, row, col)) {
+                if (minGigaX[row - 1] < -50 && cresc::Plantable(AFUME_SHROOM, row, col)) {
                     if (!_IsFodderSafe(row, col))
                         continue;
 
@@ -430,7 +466,7 @@ protected:
             return _IsAshSafe(row, col, 50) && (hitCD > 50 || hitCD == 0);
         };
 
-        if (_minBalloonX < 0) {
+        if (_minBalloonX < 40) {
             auto grids = GetPlantableGrids(PlaceType::ALL, ABLOVER);
             for (const auto& [row, col] : grids) {
                 if (!safe(row, col))
@@ -447,9 +483,9 @@ protected:
         if (_minBalloonX < 280)
             return;
 
-        for (auto row : {1, 6}) {
+        for (auto row : {1, 6, 2, 5}) {
             for (auto col : {4, 5}) {
-                if (minGigaX[row - 1] < -100 && cresc::Plantable(ABLOVER, row, col)) {
+                if (minGigaX[row - 1] < -90 && cresc::Plantable(ABLOVER, row, col)) {
                     if (!_IsFodderSafe(row, col))
                         continue;
 
@@ -498,42 +534,6 @@ private:
     ATickRunner __tickRunner;
 
     Level _levelType;
-
-    virtual void _BeforeScript() override
-    {
-        if (cresc::TypeExist(AGIGA_GARGANTUAR)) {
-            // 有红眼，同时{铁桶，橄榄，白眼}有其一，刷新基本稳定
-            if (cresc::TypeExist(AGARGANTUAR)) {
-                _levelType = Level::Slow;
-            } else { // 有红眼，但是{铁桶，橄榄，白眼}都没有，变速
-                if (cresc::TypeExist(AZOMBONI) && cresc::TypeOr({AFOOTBALL_ZOMBIE, ABUCKETHEAD_ZOMBIE}))
-                    _levelType = Level::Slow;
-                else
-                    _levelType = Level::Variable;
-            }
-        } else {
-            if (cresc::TypeExist(AGARGANTUAR)) {
-                // // 有白眼，同时{铁桶，橄榄，冰车}有其一
-                if (cresc::TypeOr({ABUCKETHEAD_ZOMBIE, AFOOTBALL_ZOMBIE, AZOMBONI}))
-                    _levelType = Level::Slow;
-                else // 只有白眼
-                    _levelType = Level::White;
-            } else {
-                if (cresc::TypeOr({ABUCKETHEAD_ZOMBIE, AFOOTBALL_ZOMBIE})) {
-                    if (cresc::TypeExist(AZOMBONI)) {
-                        _levelType = Level::Fast;
-                    } else {
-                        // 边路偷两个南瓜保大喷，减少补喷
-                        temporaryPumpkin.push_back({1, 5});
-                        temporaryPumpkin.push_back({6, 5});
-                        _levelType = Level::White;
-                    }
-                } else {
-                    _levelType = Level::TopSpeed;
-                }
-            }
-        }
-    }
 
     virtual void _EnterFight() override
     {
@@ -604,8 +604,8 @@ private:
         std::ranges::sort(gridList, [=](auto lhs, auto rhs) { return counter(lhs) > counter(rhs); });
         // 选择收益最大的格子作为樱桃释放位置
         int cherryCd = cresc::CardCD(ACHERRY_BOMB);
-        for (int i = 0; i <= gridList.size(); ++i) {
-            if (Judge::IsGridUsable(gridList[i], cherryCd)) {
+        for (int i = 0; i <= gridList.size(); ++i) { // 4列樱桃会炸梯子
+            if (Judge::IsGridUsable(gridList[i], cherryCd) && gridList[i].col != 4) {
                 cherryGrid = gridList[i];
                 break;
             }
