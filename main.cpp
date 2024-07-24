@@ -27,7 +27,7 @@ static constexpr auto MessageStr = LR"(欢迎使用 FE.智能无炮 挂机脚本
 
 2.MULTITEST 在脚本开头添加 '#define MULTITEST'切换至此模式。
 该模式下脚本会长期运行并处于跳帧状态（游戏画面不会刷新），在破阵时结束跳帧并进行SL，适用于长期冲关测试。
-注意：该模式下会在D盘生成record.txt，用于记录冲关信息。在下一次脚本注入时会读取该文件，如果文件不存在会自动创建并清空之前的冲关信息。
+注意：该模式下会在 pvz根目录\areplay文件夹 生成用于记录冲关信息的文件。在下一次脚本注入时会读取文件，如果文件不存在会自动创建并清空之前的冲关信息。
 
 3.TEST 脚本默认为此模式。
 该模式下脚本会长期运行但不会主动进行跳帧和自动SL，但您可以按键盘上的'T'键进行跳帧，适用于测试脚本稳定性。
@@ -59,14 +59,14 @@ constexpr auto RELOAD_MODE = AReloadMode::MAIN_UI_OR_FIGHT_UI;
 constexpr float GAME_SPEED = 10.0;
 constexpr int SELECT_CARDS_INTERVAL = 0;
 
-ALogger<AFile> Logger("FE. Intelligent Cobless.txt");
+ALogger<AFile> Logger("areplay\\FE. Intelligent Cobless.txt");
 constexpr auto GAME_DAT_PATH = "C:\\ProgramData\\PopCap Games\\PlantsVsZombies\\userdata\\game1_14.dat";
-constexpr auto TMP_DAT_PATH = "D:\\tmp.dat";
-constexpr auto RECORD_PATH = "D:\\record.txt";
+constexpr auto TMP_DAT_PATH = "areplay\\tmp.dat";
+constexpr auto RECORD_PATH = "areplay\\record.txt";
 
 static int startFlag = 0, endFlag = 0, completedFlags = 0, loadCount = 0;
 
-// 冲关过程中游戏可能崩溃，所以单独用一个txt记录之前冲关的信息，每次注入脚本后读取txt
+// 单独用一个txt记录之前冲关的信息，每次注入脚本后读取txt
 AOnAfterInject({
     std::ifstream file(RECORD_PATH);
     if (!file.is_open()) {
