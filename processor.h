@@ -118,17 +118,10 @@ public:
     // 如果没有红眼，返回-1
     int GetHpMaxRow(std::vector<int> rows)
     {
-        auto gethp = [this](int row) -> int {
-            int Totalhp = 0;
-            for (const auto& ptr : _gigaVec) {
-                if (ptr->Type() == AGIGA_GARGANTUAR && ptr->Row() + 1 == row)
-                    Totalhp += ptr->Hp();
-            }
-            return Totalhp;
-        };
-        std::ranges::sort(rows, [=](auto r1, auto r2) { return gethp(r1) > gethp(r2); });
-        if (gethp(rows[0]) > 0) {
-            return rows[0];
+        std::ranges::sort(rows, [this](const auto& lhs, const auto& rhs) { return __GetGigaHp(lhs) > __GetGigaHp(rhs); });
+        int row = rows.front();
+        if (__GetGigaHp(row) > 0) {
+            return row;
         } else {
             return -1;
         }
@@ -137,13 +130,11 @@ public:
     // 使用樱桃
     void UseCherry(PlaceType place_type = PlaceType::ALL)
     {
-        ACoLaunch([=, this]() -> ACoroutine {
+        ACoLaunch([=, this] -> ACoroutine {
             int now_wave = ANowWave();
             co_await [=, this] {
-                _GetCherryGrid(place_type);
-                int time = 318;
-                if (CrashTime.find(cherryGrid.col + 1) != CrashTime.end())
-                    time = CrashTime.at(cherryGrid.col + 1);
+                _UpdateCherryGrid(place_type);
+                int time = CrashTime.contains(cherryGrid.col + 1) ? CrashTime.at(cherryGrid.col + 1) : 318;
                 return AIsSeedUsable(ACHERRY_BOMB) && ANowTime(now_wave) >= time && Judge::IsGridUsable(cherryGrid);
             };
             _SafeCard(ACHERRY_BOMB, cherryGrid);
@@ -160,7 +151,7 @@ public:
                 return AIsSeedUsable(ALILY_PAD) && AIsSeedUsable(ADOOM_SHROOM) && Judge::IsGridUsable(NuclearGrid);
             };
             _SafeCard(ADOOM_SHROOM, NuclearGrid);
-            co_await [=] { return Judge::CheckPlant(NuclearGrid, ADOOM_SHROOM); };
+            co_await [=] { return CheckPlant(NuclearGrid, ADOOM_SHROOM); };
             ASetPlantActiveTime(ADOOM_SHROOM, 100);
             AGetInternalLogger()->Debug("N {}", NuclearGrid);
         });
@@ -170,12 +161,12 @@ public:
     // [row]为-1时默认在与樱桃异侧的半场放辣椒
     void UseJalapeno(int row = -1)
     {
-        ACoLaunch([=, this]() -> ACoroutine {
+        ACoLaunch([=, this] -> ACoroutine {
             co_await [=, this] {
                 _GetJalapenoGrid(row);
                 return AIsSeedUsable(AJALAPENO) && Judge::IsGridUsable(jalapenoGrid);
             };
-            _SafeCard(AJALAPENO, jalapenoGrid.row, jalapenoGrid.col);
+            _SafeCard(AJALAPENO, jalapenoGrid);
             AGetInternalLogger()->Debug("A' {}", jalapenoGrid);
         });
     }
@@ -202,7 +193,7 @@ public:
                 return AIsSeedUsable(AICE_SHROOM);
             };
             _SafeCard(AICE_SHROOM, _iceGrid);
-            co_await [this] { return Judge::CheckPlant(_iceGrid, AICE_SHROOM); };
+            co_await [this] { return CheckPlant(_iceGrid, AICE_SHROOM); };
             AGetInternalLogger()->Debug("I {}", _iceGrid);
             ASetPlantActiveTime(AICE_SHROOM, 100);
         });
@@ -225,13 +216,11 @@ public:
     // [auto_set_time]为true时自动将释放窝瓜的时间修正至能压到冰车的时机
     void UseSquash(int row = -1, bool auto_set_time = true)
     {
-        ACoLaunch([=, this]() -> ACoroutine {
+        ACoLaunch([=, this] -> ACoroutine {
             int now_wave = ANowWave();
             co_await [=, this] {
                 _GetSquashGrid(row);
-                int time = CrashTime.at(5);
-                if (CrashTime.find(_squashGrid.col - 1) != CrashTime.end())
-                    time = CrashTime.at(_squashGrid.col - 1) - 182;
+                int time = CrashTime.contains(_squashGrid.col - 1) ? CrashTime.at(_squashGrid.col - 1) - 182 : CrashTime.at(5);
                 return AIsSeedUsable(ASQUASH) && (ANowTime(now_wave) >= time || !auto_set_time);
             };
             _SafeCard(ASQUASH, _squashGrid, 110);
@@ -242,7 +231,7 @@ public:
     // 使用地刺
     void UseSpikeweed(int row)
     {
-        ACoLaunch([=]() -> ACoroutine {
+        ACoLaunch([=] -> ACoroutine {
             int wave = ANowWave();
             co_await [=] {
                 if (AIsZombieExist(AZOMBONI, row)) {
@@ -253,10 +242,7 @@ public:
                             break;
                         }
                     }
-                    int time = CrashTime.at(9);
-                    if (CrashTime.find(spikeweedCol) != CrashTime.end()) {
-                        time = CrashTime.at(spikeweedCol);
-                    }
+                    int time = CrashTime.contains(spikeweedCol) ? CrashTime.at(spikeweedCol) : CrashTime.at(9);
                     if (ANowTime(wave) >= time && AIsSeedUsable(ASPIKEWEED)) {
                         UseCard(ASPIKEWEED, row, spikeweedCol);
                         return !AIsSeedUsable(ASPIKEWEED);
@@ -279,7 +265,7 @@ protected:
             need_time = std::clamp(need_time, 0, 110);
         }
 
-        ACoLaunch([=, this]() -> ACoroutine {
+        ACoLaunch([=, this] -> ACoroutine {
             co_await [=, this] { return _IsAshSafe(row, col, need_time); };
             UseCard(plant_type, row, col);
         });
@@ -369,20 +355,15 @@ protected:
         if (AGetMainObject()->Sun() < startFixSun)
             return lst.size();
 
-        auto gethp = [=](const AGrid& grid) -> int {
-            auto ptr = AGetPlantPtr(grid.row, grid.col, APUMPKIN);
-            return ptr == nullptr ? 0 : ptr->Hp();
-        };
-
         std::vector<AGrid> needFixList = {};
-        std::copy_if(lst.begin(), lst.end(), std::back_inserter(needFixList), [=](auto grid) {
-            return gethp(grid) < Fixhp;
+        std::copy_if(lst.begin(), lst.end(), std::back_inserter(needFixList), [=](const auto& grid) {
+            return PlantHp(grid) < Fixhp;
         });
 
         if (needFixList.empty())
             return 0;
 
-        std::ranges::sort(needFixList, [=](auto lhs, auto rhs) { return gethp(lhs) < gethp(rhs); });
+        std::ranges::sort(needFixList, [=](const auto& lhs, const auto& rhs) { return PlantHp(lhs) < PlantHp(rhs); });
 
         for (const auto& [row, col] : needFixList) {
             if (Judge::IsExist(row, (col + 1.5) * 80) || !_IsFodderSafe(row, col, 200))
@@ -417,8 +398,12 @@ protected:
         }
 
         // 如果当前边路压力太大，大喷临时当作垫材使用
-        for (auto row : {1, 6, 2, 5}) {
-            for (auto col : {4, 5}) {
+        static std::vector<int> rows = {1, 2, 5, 6};
+        std::ranges::sort(rows, [=](const auto& lhs, const auto& rhs) {
+            return minGigaX[lhs - 1] < minGigaX[rhs - 1];
+        });
+        for (const auto& row : rows) {
+            for (const auto& col : {4, 5}) {
                 if (minGigaX[row - 1] < -50 && cresc::Plantable(AFUME_SHROOM, row, col)) {
                     if (!_IsFodderSafe(row, col))
                         continue;
@@ -460,19 +445,20 @@ protected:
         if (!AIsSeedUsable(ABLOVER))
             return;
 
-        auto safe = [this](int row, int col) -> bool {
-            // 检查巨人锤击
-            auto hitCD = cresc::GridHitCD(row, col, ABLOVER);
-            return _IsAshSafe(row, col, 50) && (hitCD > 50 || hitCD == 0);
-        };
+        // auto safe = [this](int row, int col) -> bool {
+        //     // 检查巨人锤击
+        //     auto hitCD = _GridHitCD(row, col, ABLOVER);
+        //     return _IsAshSafe(row, col, 50) && (hitCD > 50 || hitCD == 0);
+        // };
 
         if (_minBalloonX < 40) {
             auto grids = GetPlantableGrids(PlaceType::ALL, ABLOVER);
             for (const auto& [row, col] : grids) {
-                if (!safe(row, col))
+                if (!_IsAshSafe(row, col, 50))
                     continue;
 
-                if (cresc::Plantable(ABLOVER, row, col)) {
+                auto hitCD = _GridHitCD(row, col, ABLOVER);
+                if ((hitCD > 50 || hitCD == 0) && cresc::Plantable(ABLOVER, row, col)) {
                     ACard(ABLOVER, row, col);
                     return;
                 }
@@ -483,8 +469,12 @@ protected:
         if (_minBalloonX < 280)
             return;
 
-        for (auto row : {1, 6, 2, 5}) {
-            for (auto col : {4, 5}) {
+        static std::vector<int> rows = {1, 2, 5, 6};
+        std::ranges::sort(rows, [=](const auto& lhs, const auto& rhs) {
+            return minGigaX[lhs - 1] < minGigaX[rhs - 1];
+        });
+        for (const auto& row : rows) {
+            for (const auto& col : {4, 5}) {
                 if (minGigaX[row - 1] < -90 && cresc::Plantable(ABLOVER, row, col)) {
                     if (!_IsFodderSafe(row, col))
                         continue;
@@ -543,8 +533,6 @@ private:
 
         _minBalloonX = 800;
 
-        ClearFog(true);
-
         _gigaVec.clear();
         _boxZombieVec.clear();
         _dangerGridVec.clear();
@@ -569,42 +557,45 @@ private:
 
     virtual void _ExitFight() override
     {
-        ClearFog(false);
         temporaryPumpkin.clear();
     }
 
-    // 得到樱桃的位置
-    void _GetCherryGrid(PlaceType place_type)
+    // 计数器
+    // 根据僵尸对阵的威胁程度添加计数偏移（凭感觉加的）
+    int __Counter(const AGrid& grid)
     {
-        // 计数器
-        auto counter = [=](const AGrid& grid) -> float {
-            float result = 0;
-            for (auto& zombie : aAliveZombieFilter) {
-                if (Judge::IsCherryExplode(&zombie, grid.row, grid.col))
-                    switch (zombie.Type()) { // 根据僵尸对阵的威胁程度添加计数偏移
-                    case AGIGA_GARGANTUAR:
-                        result += 4.0;
-                        break;
-                    case AGARGANTUAR:
-                        result += 2.0;
-                        break;
-                    case AFOOTBALL_ZOMBIE:
-                    case AZOMBONI:
-                        result += 1.0;
-                        break;
-                    default:
-                        result += 0.1;
-                        break;
-                    };
-            }
-            return result;
-        };
+        int result = 0;
+        for (auto& zombie : aAliveZombieFilter) {
+            if (Judge::IsCherryExplode(&zombie, grid.row, grid.col))
+                switch (zombie.Type()) {
+                case AGIGA_GARGANTUAR:
+                    result += 40;
+                    break;
+                case AGARGANTUAR:
+                    result += 20;
+                    break;
+                case AFOOTBALL_ZOMBIE:
+                case AZOMBONI:
+                    result += 10;
+                    break;
+                default:
+                    result += 1;
+                    break;
+                };
+        }
+        return result;
+    }
+
+    // 得到樱桃的位置
+    void _UpdateCherryGrid(PlaceType place_type)
+    {
         std::vector<AGrid> gridList = GetPlantableGrids(place_type, ACHERRY_BOMB, true);
         // 根据樱桃在不同位置能炸到僵尸的数量将格子列表进行排序
-        std::ranges::sort(gridList, [=](auto lhs, auto rhs) { return counter(lhs) > counter(rhs); });
+        std::ranges::sort(gridList, [this](const auto& lhs, const auto& rhs) { return __Counter(lhs) > __Counter(rhs); });
         // 选择收益最大的格子作为樱桃释放位置
         int cherryCd = cresc::CardCD(ACHERRY_BOMB);
-        for (int i = 0; i <= gridList.size(); ++i) { // 4列樱桃会炸梯子
+        for (int i = 0; i < gridList.size(); ++i) {
+            // 4列樱桃会炸梯子
             if (Judge::IsGridUsable(gridList[i], cherryCd) && gridList[i].col != 4) {
                 cherryGrid = gridList[i];
                 break;
@@ -623,13 +614,13 @@ private:
             }
         }
         if (canPlantList.size() == 1) { // 只有一个位置
-            NuclearGrid = canPlantList[0];
+            NuclearGrid = canPlantList.front();
         } else if (!canPlantList.empty()) { // 多个位置，应该根据场上的情况决定
             // 难写，摆烂了
             // 下面是瞎写的，判断的逻辑主要针对某次挂机中在某一轮多次SL的出怪情况
             // 3-8的核弹范围较大，在边路巨人压力大的时候应该优先考虑
             AGrid temp = {3, 8};
-            auto iter = std::find(canPlantList.begin(), canPlantList.end(), temp);
+            auto iter = std::ranges::find(canPlantList, temp);
             if (iter != canPlantList.end()) {
                 if ((minGigaX[0] < 80 && minGigaX[5] < 80) || minGigaX[0] < 0 || minGigaX[5] < 0) {
                     NuclearGrid = temp;
@@ -682,10 +673,10 @@ private:
             }
         }
         if (!targetList.empty()) {
-            std::ranges::sort(targetList, [=](auto lhs, auto rhs) {
+            std::ranges::sort(targetList, [=](const auto& lhs, const auto& rhs) {
                 return lhs.col < rhs.col; // 尽量选择靠后的格子
             });
-            _copy_iceGrid = targetList[0];
+            _copy_iceGrid = targetList.front();
         }
     }
 
@@ -748,14 +739,14 @@ private:
     // 检查(row, col)是否能种植垫材
     bool _IsFodderSafe(int row, int col, int ExistTime = 50)
     {
-        // 检查巨人锤击
-        auto hitCD = cresc::GridHitCD(row, col);
         // 检查冰车碾压
         if (!_zomboniVec.empty()) {
             for (const auto& zomboniPtr : _zomboniVec)
                 if (Judge::IsWillBeCrushed(zomboniPtr, row - 1, col - 1, ExistTime))
                     return false;
         }
+        // 检查巨人锤击
+        auto hitCD = _GridHitCD(row, col);
         return _IsAshSafe(row, col, ExistTime) && (hitCD > ExistTime || hitCD == 0);
     }
 
@@ -764,9 +755,9 @@ private:
     {
         static int lock = -1;
         // 一帧只观测一次
-        if (lock == AGetMainObject()->GameClock()) {
+        if (lock == AGetMainObject()->GameClock())
             return;
-        }
+
         lock = AGetMainObject()->GameClock();
         _gigaVec.clear();
         _boxZombieVec.clear();
@@ -807,9 +798,8 @@ private:
             return;
         }
         lock = AGetMainObject()->GameClock();
-        if (_gigaVec.empty()) {
+        if (_gigaVec.empty())
             return;
-        }
 
         _dangerGridVec.clear();
         // 第一步：生成最靠左的红眼的位置列表
@@ -830,8 +820,37 @@ private:
         RemoveDuplicates(_dangerGridVec);
         // 第二步：根据坐标对每行的位置进行排序
         std::ranges::sort(_dangerGridVec, [=](const AGrid& lhs, const AGrid& rhs) {
-            return minGigaX[lhs.row] < minGigaX[rhs.row];
+            return minGigaX[lhs.row - 1] < minGigaX[rhs.row - 1];
         });
+    }
+
+    // 返回某行红眼血量总和
+    int __GetGigaHp(int row)
+    {
+        int Totalhp = 0;
+        for (const auto& ptr : _gigaVec) {
+            if (ptr->Type() == AGIGA_GARGANTUAR && ptr->Row() + 1 == row)
+                Totalhp += ptr->Hp();
+        }
+        return Totalhp;
+    };
+
+    // 某格子植物受锤最短用时（不受锤返回0）
+    int _GridHitCD(int row, int col, APlantType plant_type = APEASHOOTER)
+    {
+        int hitCD = 0;
+        for (const auto& zombie : _gigaVec) {
+            if (zombie->State() == 70 && cresc::JudgeHit(zombie, row, col, plant_type)) {
+                float animation_progress = zombie->AnimationPtr()->CirculationRate();
+                if (animation_progress >= 0.648)
+                    continue;
+
+                int remain_time = int((zombie->SlowCountdown() > 0 ? 414 : 207) * (0.648 - animation_progress)) + 1 + zombie->FreezeCountdown();
+                if (remain_time > hitCD)
+                    hitCD = remain_time;
+            }
+        }
+        return hitCD;
     }
 };
 

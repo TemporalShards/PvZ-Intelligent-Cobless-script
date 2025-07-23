@@ -1,51 +1,21 @@
-// 取自https://github.com/qrmd0/AvZLib/tree/main/crescendo/avz-more
+// https://github.com/qrmd0/AvZLib/tree/main/crescendo/avz-more
 #pragma once
 #include "libavz.h"
 
-#ifndef __AZM_ATP_VERSION__
-#define __AZM_ATP_VERSION__ 220822
+#ifndef __AZM_VERSION__
+#define __AZM_VERSION__ 220822
 #endif
 
 namespace cresc {
 
 // 自定义僵尸子类
 struct ZombieAZM : public AZombie {
-    // 图像图层
-    int& Layer()
-    {
-        return MRef<int>(0x20);
-    }
-
-    // 被魅惑则为true
-    bool& IsHypnotic()
-    {
-        return MRef<bool>(0xB8);
-    }
-
-    // 非濒死状态则为true
-    bool& NotDying()
-    {
-        return MRef<bool>(0xBA);
-    }
-
-    // 僵尸动画编号
-    uint16_t& AnimationCode()
-    {
-        return MRef<uint16_t>(0x118);
-    }
-
     // 攻击判定的横向宽度
     int& AttackWidth()
     {
         return MRef<int>(0xA4);
     }
 };
-
-// 获得动画对象
-inline AAnimation* GetAnimation(AZombie* z)
-{
-    return AGetAnimationArray() + ((ZombieAZM*)z)->AnimationCode();
-}
 
 // 自定义AMainObject子类
 struct MainObjectAZM : public AMainObject {
@@ -66,12 +36,6 @@ struct MainObjectAZM : public AMainObject {
 inline MainObjectAZM* MyMainObject()
 {
     return (MainObjectAZM*)AGetMainObject();
-}
-
-// 完成关卡数
-inline int GetCurrentLevel()
-{
-    return AMRef<int>(0x6A9EC0, 0x768, 0x160, 0x6c);
 }
 
 // 获得row行col列无偏移植物的内存坐标
@@ -117,37 +81,30 @@ inline std::pair<int, int> GetExplodeDefenseRange(APlantType type)
     }
 }
 
-// 判断两个区间是否重叠
-inline bool IntervalIntersectInterval(int x1, int w1, int x2, int w2)
-{
-    return ((x1 <= x2 + w2) && (x2 <= x1 + w1));
-}
-
 // 判断某僵尸攻击域和某植物防御域是否重叠
 inline bool JudgeHit(AZombie* zombie, int plant_row, int plant_col, APlantType plant_type = APEASHOOTER)
 {
     auto z = (ZombieAZM*)zombie;
-    auto plant_coord = GetPlantCoord(plant_row, plant_col);
+    auto plantX = GetPlantCoord(plant_row, plant_col).first;
     auto def = GetDefenseRange(plant_type);
-    return zombie->Row() + 1 == plant_row && IntervalIntersectInterval(int(z->Abscissa()) + z->AttackAbscissa(), z->AttackWidth(), plant_coord.first + def.first, def.second - def.first);
+    return zombie->Row() + 1 == plant_row && ((int(z->Abscissa()) + z->AttackAbscissa() <= plantX + def.second) && (plantX + def.first <= int(z->Abscissa()) + z->AttackAbscissa() + z->AttackWidth()));
 }
 
 // 判断小丑爆炸范围和某植物防御域是否重叠
 inline bool JudgeExplode(AZombie* zombie, int plant_row, int plant_col, APlantType plant_type = APEASHOOTER)
 {
     int x = zombie->Abscissa() + 60, y = zombie->Ordinate() + 60; // 小丑爆心偏移
-    auto plant_coord = GetPlantCoord(plant_row, plant_col);
-    int plant_x = plant_coord.first, plant_y = plant_coord.second;
+    auto [p_x, p_y] = GetPlantCoord(plant_row, plant_col);
     int y_dis = 0;
-    if (y < plant_y)
-        y_dis = plant_y - y;
-    else if (y > plant_y + 80)
-        y_dis = y - (plant_y + 80);
+    if (y < p_y)
+        y_dis = p_y - y;
+    else if (y > p_y + 80)
+        y_dis = y - (p_y + 80);
     if (y_dis > 90)
         return false;
     int x_dis = std::sqrt(90 * 90 - y_dis * y_dis);
-    auto def = GetExplodeDefenseRange(plant_type);
-    return plant_x + def.first - x_dis <= x && x <= plant_x + def.second + x_dis;
+    auto [d_left, d_right] = GetExplodeDefenseRange(plant_type);
+    return p_x + d_left - x_dis <= x && x <= p_x + d_right + x_dis;
 }
 
 // 某格子的核坑倒计时
@@ -203,9 +160,10 @@ inline int GridCD(AGrid g) { return GridCD(g.row, g.col); }
 
 // 返回某卡能否成功用在某处
 // 主要用于防止Card函数一帧内调用多次Card导致不明原因崩溃
-inline bool Plantable(APlantType type, int row, int col)
+inline bool Plantable(int type, int row, int col)
 {
-    return AAsm::GetPlantRejectType(type, row - 1, col - 1) == AAsm::NIL;
+    int _type = type % AM_PEASHOOTER;
+    return AAsm::GetPlantRejectType(_type, row - 1, col - 1) == AAsm::NIL;
 }
 
 // 返回某卡的冷却倒计时
@@ -255,7 +213,7 @@ inline int GridHitCD(int row, int col, APlantType plant_type = APEASHOOTER)
     int hitCD = 0;
     for (auto& zombie : aAliveZombieFilter) {
         if (ARangeIn(zombie.Type(), {AGARGANTUAR, AGIGA_GARGANTUAR}) && zombie.State() == 70 && JudgeHit(&zombie, row, col, plant_type)) {
-            float animation_progress = GetAnimation(&zombie)->CirculationRate();
+            float animation_progress = zombie.AnimationPtr()->CirculationRate();
             if (animation_progress >= 0.648)
                 continue;
 

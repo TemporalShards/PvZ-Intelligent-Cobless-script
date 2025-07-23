@@ -1,10 +1,18 @@
 #pragma once
+
+#if __has_include("GetZombieAbscissas/GetZombieAbscissas_2_0.h")
 #include "GetZombieAbscissas/GetZombieAbscissas_2_0.h"
+#else
+#error ("You must install the Extension "qrmd/GetZombieAbscissas.h" to run this script")
+#endif
+
 #include "avz_more.h"
 #include "util.h"
 
 #ifndef __GLOBAL_H__
 #define __GLOBAL_H__
+
+#define CheckPlant(grid, type) AGetPlantIndex(grid.row, grid.col, type) >= 0
 
 class Judge {
 public:
@@ -12,19 +20,18 @@ public:
     static bool IsExistLadder(int row, int col)
     {
         for (auto& placeItem : aAlivePlaceItemFilter) {
-            if (placeItem.Type() == APlaceItemType::LADDER && placeItem.Row() == row - 1 && placeItem.Col() == col - 1) {
+            if (placeItem.Type() == APlaceItemType::LADDER && placeItem.Row() == row - 1 && placeItem.Col() == col - 1)
                 return true;
-            }
         }
         return false;
     }
+
     // 检查[list]中是否有格子在[delay_time]后可用
     static bool IsGridUsable(std::vector<AGrid> list, int delay_time = 0)
     {
         for (const auto& grid : list) {
-            if (IsGridUsable(grid, delay_time)) {
+            if (IsGridUsable(grid, delay_time))
                 return true;
-            }
         }
         return false;
     }
@@ -37,9 +44,9 @@ public:
 
     static bool IsGridUsable(int row, int col, int delay_time = 0)
     {
-        if (row <= 0 || col <= 0) {
+        if (row <= 0 || col <= 0)
             return false;
-        }
+
         return cresc::GridCD(row, col) <= delay_time;
     }
 
@@ -50,11 +57,12 @@ public:
     }
 
     // 判断(row, col)是否有一次性植物
-    static bool IsExistAsh(int row, int col, std::unordered_set<APlantType> ashType = {ACHERRY_BOMB, AJALAPENO, ADOOM_SHROOM, ASQUASH, ABLOVER, APOTATO_MINE, AICE_SHROOM})
+    static bool IsExistAsh(int row, int col)
     {
-        if (row <= 0 || col <= 0) {
+        if (row <= 0 || col <= 0)
             return false;
-        }
+
+        static std::unordered_set<APlantType> ashType = {ACHERRY_BOMB, AJALAPENO, ADOOM_SHROOM, ASQUASH, ABLOVER, APOTATO_MINE, AICE_SHROOM};
         for (const auto& type : ashType) {
             if (AGetPlantIndex(row, col, type) >= 0)
                 return true;
@@ -65,9 +73,9 @@ public:
     // 判断(row, col)是否可以直接种植
     static bool CanPlant(APlantType type, int row, int col)
     {
-        if (row <= 0 || col <= 0) {
+        if (row <= 0 || col <= 0)
             return false;
-        }
+
         return cresc::Plantable(type, row, col) || IsExistAsh(row, col);
     }
 
@@ -101,19 +109,19 @@ public:
     // 如果 > 0 代表已经锤击
     static float HammerRate(AZombie* zombie)
     {
-        auto circulationRate = cresc::GetAnimation(zombie)->CirculationRate();
+        auto circulationRate = zombie->AnimationPtr()->CirculationRate();
         return circulationRate - HAMMER_CIRCULATION_RATE;
     }
 
     // 检查植物在[time]cs后是否要被冰车碾压
     static bool IsWillBeCrushed(AZombie* zombie, int plantRow, int plantCol, int time)
     {
-        auto zombie_index = zombie->MRef<uint16_t>(0x158);
+        auto zombie_index = zombie->Index();
         auto abscVec = _qrmd::AGetZombieAbscissas(zombie_index, time);
         if (abscVec.empty()) {
             return true;
         }
-        auto zombieX = abscVec[time];
+        auto zombieX = abscVec.back();
         int zombieRow = zombie->Row();
         int plantX = cresc::GetPlantCoord(plantRow + 1, plantCol + 1).first;
         // 冰车碾压 +10~+143
@@ -132,12 +140,6 @@ public:
         int centerX = cresc::GetPlantCoord(cherryRow, cherryCol).first + 40;
         int zombieRow = zombie->Row() + 1;
         return HasIntersection({centerX - 115, centerX + 115}, _GetDefenseRange(zombie)) && std::abs(zombieRow - cherryRow) <= 1;
-    }
-
-    // 检查[grid]格子是否有[plant_type]植物
-    static bool CheckPlant(AGrid grid, APlantType plant_type)
-    {
-        return AGetPlantIndex(grid.row, grid.col, plant_type) >= 0;
     }
 
 protected:
@@ -160,7 +162,7 @@ inline void UseCard(APlantType plant_type, int row, int col)
     if (!AIsSeedUsable(plant_type))
         return;
 
-    int type = plant_type > AIMITATOR ? plant_type - AM_PEASHOOTER : plant_type;
+    int type = plant_type % AM_PEASHOOTER;
     auto PlantRejectType = AAsm::GetPlantRejectType(type, row - 1, col - 1);
     if (PlantRejectType == AAsm::NEEDS_POT && AIsSeedUsable(AFLOWER_POT))
         ACard(AFLOWER_POT, row, col);
@@ -170,48 +172,27 @@ inline void UseCard(APlantType plant_type, int row, int col)
         AShovel(row, col);
 
     ACoLaunch([=]() -> ACoroutine {
-        co_await [=] { return cresc::Plantable(static_cast<APlantType>(type), row, col); };
+        co_await [=] { return cresc::Plantable(type, row, col); };
         ACard(plant_type, row, col);
     });
 }
 
-// 游戏控制
-class GameController {
-protected:
-    static constexpr std::array<float, 7> GAME_SPEED_GEARS = {0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0};
-    float _default_speed = 1.0;
-    AKey _decelerate_key = 'A';
-    AKey _accelerate_key = 'D';
-    AKey _reset_speed_key = 'S';
-    AKey _script_stop_key = 'Q';
-
-public:
-    // 启用按键速度控制，默认速度倍率[speed]=1.0
-    // [speed]有7个档位：{0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0}
-    // A：速度加快一档
-    // D：速度减慢一档
-    // W：速度恢复原速
-    // Q：脚本停止运行
-    void Enable(const float& speed = 1.0);
-
-    // 设置减速快捷键
-    void SetDecelerateKey(const AKey& key) { this->_decelerate_key = key; }
-
-    // 设置加速快捷键
-    void SetAccelerateKey(const AKey& key) { this->_accelerate_key = key; }
-
-    // 设置恢复默认速度快捷键
-    void SetResetSpeedKey(const AKey& key) { this->_reset_speed_key = key; }
-
-    // 设置脚本停止运行快捷键
-    void SetScriptStopKey(const AKey& key) { this->_script_stop_key = key; }
-} inline game_controller;
-
-inline void GameController::Enable(const float& speed)
+// 得到某位置[type]植物的血量
+// 如果不存在该种植物，返回0
+inline int PlantHp(AGrid grid, APlantType type = APUMPKIN)
 {
+    auto ptr = AGetPlantPtr(grid.row, grid.col, type);
+    return ptr == nullptr ? 0 : ptr->Hp();
+};
+
+// 按键控制游戏速度和脚本运行
+// ------------参数------------
+// [speed]设置初始速度，默认为1.0
+inline void KeyController(float speed)
+{
+    static std::vector<float> GAME_SPEED_GEARS = {0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0};
     ASetGameSpeed(speed);
-    _default_speed = 10.0 / AGetPvzBase()->TickMs();
-    AConnect(_decelerate_key, [=] {
+    AConnect('A', [=] {
         int game_speed_gear = GAME_SPEED_GEARS.size();
         float game_speed = 10.0 / AGetPvzBase()->TickMs();
         for (int i = 0; i < GAME_SPEED_GEARS.size(); ++i) {
@@ -224,7 +205,7 @@ inline void GameController::Enable(const float& speed)
             ASetGameSpeed(GAME_SPEED_GEARS[game_speed_gear - 1]);
         }
     });
-    AConnect(_accelerate_key, [=] {
+    AConnect('D', [=] {
         int game_speed_gear = 0;
         float game_speed = 10.0 / AGetPvzBase()->TickMs();
         for (int i = GAME_SPEED_GEARS.size() - 1; i >= 0; --i) {
@@ -237,64 +218,17 @@ inline void GameController::Enable(const float& speed)
             ASetGameSpeed(GAME_SPEED_GEARS[game_speed_gear + 1]);
         }
     });
-    AConnect(_reset_speed_key, [=] { ASetGameSpeed(1); });
-
-    AConnect(_script_stop_key, [=] {
-        auto pvzHwnd = AGetPvzBase()->MRef<HWND>(0x350);
-        auto ret = MessageBoxW(pvzHwnd, L"您想要立即停止脚本的运行吗？点击确定脚本将停止运行，点击取消则会在完成本轮选卡后结束脚本的运行", L"Waring", MB_ICONINFORMATION | MB_OKCANCEL | MB_APPLMODAL);
+    AConnect('S', [=] { ASetGameSpeed(1); });
+    AConnect('Q', [=] {
+        auto hWnd = AGetPvzBase()->Hwnd();
+        auto ret = MessageBoxW(hWnd, L"您想要立即停止脚本的运行吗？点击确定脚本将停止运行，点击取消则会在完成本轮选卡后结束脚本的运行", L"Waring", MB_ICONINFORMATION | MB_OKCANCEL | MB_APPLMODAL);
         ASetReloadMode(AReloadMode::NONE);
         if (ret == 1) {
-            ret = MessageBoxW(pvzHwnd, L"真的要立即停止脚本运行吗？这可能会导致脚本在下次注入时部分功能异常", L"Waring", MB_ICONINFORMATION | MB_OKCANCEL | MB_APPLMODAL);
+            ret = MessageBoxW(hWnd, L"请再次确定是否要立即停止脚本运行，立即停止脚本运行可能会出现一些异常情况", L"Waring", MB_ICONINFORMATION | MB_OKCANCEL | MB_APPLMODAL);
             if (ret == 1)
                 ATerminate("您主动结束了脚本的运行！");
         }
     });
-}
-
-// 取自：https://github.com/qrmd0/AvZLib/tree/main/qrmd/qmLib#avz-qmlib
-// 指定键均被按下时，返回true。
-// ------------参数------------
-// keys 要检测的按键的虚拟键码，详见：https://learn.microsoft.com/zh-cn/windows/win32/inputdev/virtual-key-codes
-// isRequirePvZActive 是否要求PvZ窗口是当前窗口
-// ------------示例------------
-// AConnect([] { return true; }, [] {
-//     if(AGetIsKeysDown({VK_CONTROL, VK_SHIFT, 'D'}, false)){
-//         ALogger<AMsgBox> _log;
-//         _log.Debug("您按下了全局快捷键 Ctrl+Shift+D");
-//     } });
-inline bool AGetIsKeysDown(const std::vector<int>& keys, bool isRequirePvZActive = true)
-{
-    auto pvzHandle = AGetPvzBase()->MRef<HWND>(0x350);
-    if (isRequirePvZActive && GetForegroundWindow() != pvzHandle)
-        return false;
-
-    for (const auto& each : keys) {
-        if ((GetAsyncKeyState(each) & 0x8000) == 0)
-            return false;
-    }
-    return true;
-}
-inline bool AGetIsKeysDown(const int& key, bool isRequirePvZActive = true)
-{
-    auto pvzHandle = AGetPvzBase()->MRef<HWND>(0x350);
-    if (isRequirePvZActive && GetForegroundWindow() != pvzHandle)
-        return false;
-
-    return (GetAsyncKeyState(key) & 0x8000) != 0;
-}
-
-// 清除浓雾
-inline void ClearFog(bool isEnable)
-{
-    AMRef<uint16_t>(0x41a68d) = isEnable ? 0xd231 : 0xf23b;
-}
-
-// 设置僵尸是否隐形
-// 主要用于提高跳帧速度
-inline void SetZombieIsStealth(bool isEnable)
-{
-    AMRef<byte>(0x0052e357) = isEnable ? 0x70 : 0x75;
-    AMRef<byte>(0x0053402b) = isEnable ? 0x70 : 0x75;
 }
 
 #endif //!__GLOBAL_H__
